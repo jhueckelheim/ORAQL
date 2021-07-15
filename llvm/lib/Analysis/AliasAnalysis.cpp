@@ -26,6 +26,7 @@
 #include "llvm/Analysis/AliasAnalysis.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/Analysis/BasicAliasAnalysis.h"
+#include "llvm/Analysis/OptimisticAliasAnalysis.h"
 #include "llvm/Analysis/CFLAndersAliasAnalysis.h"
 #include "llvm/Analysis/CFLSteensAliasAnalysis.h"
 #include "llvm/Analysis/CaptureTracking.h"
@@ -290,7 +291,7 @@ ModRefInfo AAResults::getModRefInfo(const CallBase *Call1,
 }
 
 ModRefInfo AAResults::getModRefInfo(const CallBase *Call1,
-                                    const CallBase *Call2, AAQueryInfo &AAQI) {
+                                  const CallBase *Call2, AAQueryInfo &AAQI) {
   ModRefInfo Result = ModRefInfo::ModRef;
 
   for (const auto &AA : AAs) {
@@ -840,6 +841,7 @@ char AAResultsWrapperPass::ID = 0;
 
 INITIALIZE_PASS_BEGIN(AAResultsWrapperPass, "aa",
                       "Function Alias Analysis Results", false, true)
+INITIALIZE_PASS_DEPENDENCY(OptimisticAAWrapperPass)
 INITIALIZE_PASS_DEPENDENCY(BasicAAWrapperPass)
 INITIALIZE_PASS_DEPENDENCY(CFLAndersAAWrapperPass)
 INITIALIZE_PASS_DEPENDENCY(CFLSteensAAWrapperPass)
@@ -897,6 +899,8 @@ bool AAResultsWrapperPass::runOnFunction(Function &F) {
     AAR->addAAResult(WrapperPass->getResult());
   if (auto *WrapperPass = getAnalysisIfAvailable<CFLSteensAAWrapperPass>())
     AAR->addAAResult(WrapperPass->getResult());
+  if (auto *WrapperPass = &getAnalysis<OptimisticAAWrapperPass>())
+    AAR->addAAResult(WrapperPass->getResult());
 
   // If available, run an external AA providing callback over the results as
   // well.
@@ -912,6 +916,7 @@ void AAResultsWrapperPass::getAnalysisUsage(AnalysisUsage &AU) const {
   AU.setPreservesAll();
   AU.addRequiredTransitive<BasicAAWrapperPass>();
   AU.addRequiredTransitive<TargetLibraryInfoWrapperPass>();
+  AU.addRequired<OptimisticAAWrapperPass>();
 
   // We also need to mark all the alias analysis passes we will potentially
   // probe in runOnFunction as used here to ensure the legacy pass manager
