@@ -584,11 +584,8 @@ PMTopLevelManager::setLastUser(ArrayRef<Pass*> AnalysisPasses, Pass *P) {
     const AnalysisUsage::VectorType &IDs = AnUsage->getRequiredTransitiveSet();
     SmallVector<Pass *, 12> LastUses;
     SmallVector<Pass *, 12> LastPMUses;
-    dbgs() << "APouter FOOOOOO '"  << AP->getPassName() << "\n";
     for (AnalysisID ID : IDs) {
       Pass *AnalysisPass = findAnalysisPass(ID);
-      const PassInfo *PI = findAnalysisPassInfo(ID);
-      dbgs() << "  APinner FOOOOOO '"  << P->getPassName() << "\n";
       assert(AnalysisPass && "Expected analysis pass to exist.");
       AnalysisResolver *AR = AnalysisPass->getResolver();
       assert(AR && "Expected analysis resolver to exist.");
