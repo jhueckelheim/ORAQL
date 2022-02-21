@@ -64,14 +64,18 @@
 #include <string>
 #include <fstream>
 #include <sstream>
+#include <map>
 
 #define DEBUG_TYPE "optimisticaa"
 
 using namespace llvm;
 
-static std::list<std::pair<int,int>> decisions;
+static int probingType;
+static std::vector<std::pair<int,int>> decisions;
+static std::map<std::pair<const llvm::Value* const&, const llvm::Value* const&>, bool> decisionCache;
 static int currentDecision;
 STATISTIC(NumberOfOptimisticAAQueries, "Number of optimisticAA alias calls");
+STATISTIC(NumberOfOptimisticAAQueriesUnique, "Number of optimisticAA answers not from cache");
 STATISTIC(NumberOfOptimisticDecisions, "Number of optimisticAA NoAlias decisions");
 STATISTIC(NumberOfPessimisticDecisions, "Number of optimisticAA MayAlias decisions");
 
@@ -80,18 +84,42 @@ static cl::opt<std::string> OptimisticAnalysisSequence("optimistic-aa-seq", cl::
 AliasResult OptimisticAAResult::alias(const MemoryLocation &LocA,
                                  const MemoryLocation &LocB,
                                  AAQueryInfo &AAQI) {
-  currentDecision++;
   NumberOfOptimisticAAQueries++;
-  for(auto it=decisions.begin(); it!=decisions.end(); it++) {
-    if((currentDecision-1)%it->first==it->second) {
+  std::pair<const llvm::Value* const&, const llvm::Value* const&> pr(LocA.Ptr, LocB.Ptr);
+  if (decisionCache.find(pr) != decisionCache.end()) {
+    if(decisionCache[pr]) return AliasResult::NoAlias;
+    else return AliasResult::MayAlias;
+  }
+  NumberOfOptimisticAAQueriesUnique++;
+  currentDecision++;
+  if(probingType == 0) {
+    // using fourier probing
+    for(auto it=decisions.begin(); it!=decisions.end(); it++) {
+      if((currentDecision-1)%it->first==it->second) {
+        NumberOfOptimisticDecisions++;
+        decisionCache[pr] = true;
+        return AliasResult::NoAlias;
+      }
+      else {
+        NumberOfPessimisticDecisions++;
+      }
+    }
+    decisionCache[pr] = false;
+    return AliasResult::MayAlias;
+  }
+  else {
+    // using conventional probing
+    if(currentDecision < decisions.size() && decisions[currentDecision].second == 1) {
       NumberOfOptimisticDecisions++;
+      decisionCache[pr] = true;
       return AliasResult::NoAlias;
     }
     else {
       NumberOfPessimisticDecisions++;
+      decisionCache[pr] = false;
+      return AliasResult::MayAlias;
     }
   }
-  return AliasResult::MayAlias;
 }
 
 //===----------------------------------------------------------------------===//
@@ -126,8 +154,10 @@ bool OptimisticAAWrapperPass::runOnFunction(Function &F) {
   if(decisions.empty()) {
     std::stringstream iss( OptimisticAnalysisSequence );
     std::pair<int,int> seqItem;
+    probingType = 0;
     while ( iss >> seqItem.first && iss >> seqItem.second ) {
       decisions.push_back(seqItem);
+      if(probingType == 0 && seqItem.first < 0) probingType = 1;
     }
   }
   return false;
