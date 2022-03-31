@@ -93,7 +93,7 @@ AliasResult OptimisticAAResult::alias(const MemoryLocation &LocA,
     dbgs() << "[ORAQL] Optimistic query [Cached " << Cached << "]\n";
     dbgs() << "[ORAQL] - " << *LocA.Ptr << "["<<LocA.Size<<"]\n";
     dbgs() << "[ORAQL] - " << *LocB.Ptr << "["<<LocB.Size<<"]\n";
-    Function *Scope = nullptr;
+    const Function *Scope = nullptr;
     auto *PtrAI = dyn_cast<Instruction>(LocA.Ptr);
     auto *PtrBI = dyn_cast<Instruction>(LocB.Ptr);
     auto *PtrAArg = dyn_cast<Argument>(LocA.Ptr);
@@ -106,11 +106,11 @@ AliasResult OptimisticAAResult::alias(const MemoryLocation &LocA,
       Scope = PtrAArg->getParent();
     else if (PtrBArg)
       Scope = PtrBArg->getParent();
-    dbgs() << "[ORAQL] Scope: " << Scope?  Scope->getName() : "<unknown>"<< "\n";
+    dbgs() << "[ORAQL] Scope: " << (Scope?  Scope->getName() : "<unknown>") << "\n";
     if (PtrAI)
-      dbgs() << "[ORAQL] LocA: " << LocA.Ptr->getDebugLoc() << "\n";
+      dbgs() << "[ORAQL] LocA: " << PtrAI->getDebugLoc() << "\n";
     if (PtrBI)
-      dbgs() << "[ORAQL] LocB: " << LocB.Ptr->getDebugLoc() << "\n";
+      dbgs() << "[ORAQL] LocB: " << PtrBI->getDebugLoc() << "\n";
     dbgs() <<"\n";
   };
 
