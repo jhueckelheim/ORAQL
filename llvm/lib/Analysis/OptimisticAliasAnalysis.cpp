@@ -115,12 +115,12 @@ AliasResult OptimisticAAResult::alias(const MemoryLocation &LocA,
     dbgs() << "[ORAQL] Scope: " << (Scope?  Scope->getName() : "<unknown>") << "\n";
     if (PtrAI && PtrAI->getDebugLoc()) {
       dbgs() << "[ORAQL] LocA: ";
-      PtrAI->getDebugLoc()->print(dbgs());
+      PtrAI->getDebugLoc().print(dbgs());
       dbgs() << "\n";
     }
     if (PtrBI && PtrBI->getDebugLoc()) {
       dbgs() << "[ORAQL] LocB: ";
-      PtrBI->getDebugLoc()->print(dbgs());
+      PtrBI->getDebugLoc().print(dbgs());
       dbgs() << "\n";
     }
 
