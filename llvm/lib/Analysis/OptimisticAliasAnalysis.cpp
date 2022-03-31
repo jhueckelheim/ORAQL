@@ -76,6 +76,10 @@ STATISTIC(NumberOfOptimisticAAQueriesUnique, "Number of optimisticAA answers not
 STATISTIC(NumberOfOptimisticDecisions, "Number of optimisticAA NoAlias decisions");
 STATISTIC(NumberOfPessimisticDecisions, "Number of optimisticAA MayAlias decisions");
 
+static cl::opt<bool> OptAADumpOptimistic("opt-aa-dump-optimistic", cl::Hidden, cl::init(false));
+static cl::opt<bool> OptAADumpPessimistic("opt-aa-dump-pessimistic", cl::Hidden, cl::init(false));
+static cl::opt<bool> OptAADumpCached("opt-aa-dump-cached", cl::Hidden, cl::init(false));
+static cl::opt<bool> OptAADumpFirst("opt-aa-dump-first", cl::Hidden, cl::init(false));
 static cl::opt<std::string> OptAASequence("opt-aa-seq", cl::Hidden, cl::init(""));
 static cl::opt<std::string> OptAAProbing("opt-aa-probing", cl::Hidden, cl::desc(""), cl::init(""));
 static cl::opt<std::string> OptAATarget("opt-aa-target", cl::Hidden, cl::desc(""), cl::init(""));
@@ -89,8 +93,10 @@ AliasResult OptimisticAAResult::alias(const MemoryLocation &LocA,
     return AliasResult::MayAlias;
   }
 
-  auto DumpInfo = [&](bool Cached){
-    dbgs() << "[ORAQL] Optimistic query [Cached " << Cached << "]\n";
+  auto DumpInfo = [&](bool Cached, bool Optimistic){
+    if (!(((Cached && OptAADumpCached) || (!Cached && OptAADumpFirst)) && ((Optimistic && OptAADumpOptimistic) || (!Optimistic && OptAADumpPessimistic))))
+      return;
+    dbgs() << "[ORAQL] " << (Optimistic ? "Optimistic" : "Pessimistic") << " query [Cached " << Cached << "]\n";
     dbgs() << "[ORAQL] - " << *LocA.Ptr << "["<<LocA.Size<<"]\n";
     dbgs() << "[ORAQL] - " << *LocB.Ptr << "["<<LocB.Size<<"]\n";
     const Function *Scope = nullptr;
@@ -120,9 +126,10 @@ AliasResult OptimisticAAResult::alias(const MemoryLocation &LocA,
   std::pair<const llvm::Value* const, const llvm::Value* const> pr(LocA.Ptr, LocB.Ptr);
   if (this->decisionCache.find(pr) != this->decisionCache.end()) {
     if(this->decisionCache[pr]) {
-      DumpInfo(/* Cached */ true);
+      DumpInfo(/* Cached */ true, /* Optimistic */ true);
       return AliasResult::NoAlias;
     }
+    DumpInfo(/* Cached */true, /* Optimistic */ false);
     return AliasResult::MayAlias;
   }
 
@@ -135,11 +142,12 @@ AliasResult OptimisticAAResult::alias(const MemoryLocation &LocA,
     if(this->optAAEnabled &&
        (currentDecision-1 >= this->decisions.size() || this->decisions[currentDecision-1] == 1)) {
       NumberOfOptimisticDecisions++;
-      LLVM_DEBUG(DumpInfo(/* Cached */ false));
+      DumpInfo(/* Cached */false, /* Optimistic */ true);
       decisionCache[pr] = true;
       return AliasResult::NoAlias;
     }
     NumberOfPessimisticDecisions++;
+    DumpInfo(/* Cached */false, /* Optimistic */ false);
     decisionCache[pr] = false;
     return AliasResult::MayAlias;
   }
@@ -148,12 +156,13 @@ AliasResult OptimisticAAResult::alias(const MemoryLocation &LocA,
     for(auto it=this->decisions.begin(); it!=this->decisions.end(); it=it+2) {
       if(int(currentDecision-1)%(*it)==(*it+1)) {
         NumberOfOptimisticDecisions++;
-        LLVM_DEBUG(DumpInfo(/* Cached */ false));
+        DumpInfo(/* Cached */false, /* Optimistic */ true);
         decisionCache[pr] = true;
         return AliasResult::NoAlias;
       }
     }
     NumberOfPessimisticDecisions++;
+    DumpInfo(/* Cached */false, /* Optimistic */ false);
     decisionCache[pr] = false;
     return AliasResult::MayAlias;
   }
