@@ -27,6 +27,7 @@
 #include <cstdint>
 #include <memory>
 #include <utility>
+#include <map>
 
 namespace llvm {
 
@@ -49,8 +50,12 @@ class Value;
 /// analysis.
 class OptimisticAAResult : public AAResultBase<OptimisticAAResult> {
   friend AAResultBase<OptimisticAAResult>;
+  std::map<std::pair<const llvm::Value* const, const llvm::Value* const>, bool> decisionCache;
+  static unsigned int currentDecision;
 
 public:
+  std::vector<int> decisions;
+  bool optAAEnabled;
   AliasResult alias(const MemoryLocation &LocA, const MemoryLocation &LocB,
                     AAQueryInfo &AAQI);
 

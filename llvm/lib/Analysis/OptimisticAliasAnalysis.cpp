@@ -70,46 +70,41 @@
 
 using namespace llvm;
 
-static int probingType;
-static std::vector<std::pair<int,int>> decisions;
-static std::map<std::pair<const llvm::Value* const&, const llvm::Value* const&>, bool> decisionCache;
-static int currentDecision;
 STATISTIC(NumberOfOptimisticAAQueries, "Number of optimisticAA alias calls");
 STATISTIC(NumberOfOptimisticAAQueriesUnique, "Number of optimisticAA answers not from cache");
 STATISTIC(NumberOfOptimisticDecisions, "Number of optimisticAA NoAlias decisions");
 STATISTIC(NumberOfPessimisticDecisions, "Number of optimisticAA MayAlias decisions");
 
-static cl::opt<std::string> OptimisticAnalysisSequence("optimistic-aa-seq", cl::Hidden, cl::init(""));
+static cl::opt<std::string> OptAASequence("opt-aa-seq", cl::Hidden, cl::init(""));
+static cl::opt<std::string> OptAAProbing("opt-aa-probing", cl::Hidden, cl::desc(""), cl::init(""));
+static cl::opt<std::string> OptAATarget("opt-aa-target", cl::Hidden, cl::desc(""), cl::init(""));
+unsigned int OptimisticAAResult::currentDecision;
 
 AliasResult OptimisticAAResult::alias(const MemoryLocation &LocA,
                                  const MemoryLocation &LocB,
                                  AAQueryInfo &AAQI) {
-  NumberOfOptimisticAAQueries++;
-  std::pair<const llvm::Value* const&, const llvm::Value* const&> pr(LocA.Ptr, LocB.Ptr);
-  if (decisionCache.find(pr) != decisionCache.end()) {
-    if(decisionCache[pr]) return AliasResult::NoAlias;
-    else return AliasResult::MayAlias;
-  }
-  NumberOfOptimisticAAQueriesUnique++;
-  currentDecision++;
-  if(probingType == 0) {
-    // using fourier probing
-    for(auto it=decisions.begin(); it!=decisions.end(); it++) {
-      if((currentDecision-1)%it->first==it->second) {
-        NumberOfOptimisticDecisions++;
-        decisionCache[pr] = true;
-        return AliasResult::NoAlias;
-      }
-      else {
-        NumberOfPessimisticDecisions++;
-      }
-    }
-    decisionCache[pr] = false;
+  // if no opt-aa-seq is given in the command line, we probably don't want any of this to happen.
+  if(OptAASequence.empty()) {
     return AliasResult::MayAlias;
   }
-  else {
-    // using conventional probing
-    if(currentDecision < decisions.size() && decisions[currentDecision].second == 1) {
+
+  NumberOfOptimisticAAQueries++;
+
+  // Check if we have a cached result for this query.
+  std::pair<const llvm::Value* const, const llvm::Value* const> pr(LocA.Ptr, LocB.Ptr);
+  if (this->decisionCache.find(pr) != this->decisionCache.end()) {
+    if(this->decisionCache[pr]) return AliasResult::NoAlias;
+    else return AliasResult::MayAlias;
+  }
+
+  // We must run, and we have nothing in the cache, so the work begins.
+  NumberOfOptimisticAAQueriesUnique++;
+  currentDecision++;
+
+  if (OptAAProbing.empty() or OptAAProbing == "chunked") {
+    // use conventional probing
+    if(this->optAAEnabled &&
+       (currentDecision-1 >= this->decisions.size() || this->decisions[currentDecision-1] == 1)) {
       NumberOfOptimisticDecisions++;
       decisionCache[pr] = true;
       return AliasResult::NoAlias;
@@ -119,6 +114,19 @@ AliasResult OptimisticAAResult::alias(const MemoryLocation &LocA,
       decisionCache[pr] = false;
       return AliasResult::MayAlias;
     }
+  }
+  else {
+    // use fourier probing
+    for(auto it=this->decisions.begin(); it!=this->decisions.end(); it=it+2) {
+      if(int(currentDecision-1)%(*it)==(*it+1)) {
+        NumberOfOptimisticDecisions++;
+        decisionCache[pr] = true;
+        return AliasResult::NoAlias;
+      }
+    }
+    NumberOfPessimisticDecisions++;
+    decisionCache[pr] = false;
+    return AliasResult::MayAlias;
   }
 }
 
@@ -151,13 +159,19 @@ FunctionPass *llvm::createOptimisticAAWrapperPass() {
 
 bool OptimisticAAWrapperPass::runOnFunction(Function &F) {
   Result.reset(new OptimisticAAResult());
-  if(decisions.empty()) {
-    std::stringstream iss( OptimisticAnalysisSequence );
-    std::pair<int,int> seqItem;
-    probingType = 0;
-    while ( iss >> seqItem.first && iss >> seqItem.second ) {
-      decisions.push_back(seqItem);
-      if(probingType == 0 && seqItem.first < 0) probingType = 1;
+
+  Result->optAAEnabled = true;
+  if (!OptAATarget.empty())
+    if (!StringRef(F.getParent()->getTargetTriple()).contains(OptAATarget)) {
+      Result->optAAEnabled = false;
+      return false;
+    }
+      
+  if(Result->decisions.empty()) {
+    std::stringstream iss( OptAASequence );
+    int seqItem;
+    while ( iss >> seqItem ) {
+      Result->decisions.push_back(seqItem);
     }
   }
   return false;
