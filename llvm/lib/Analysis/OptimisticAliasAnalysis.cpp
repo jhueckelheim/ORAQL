@@ -59,6 +59,7 @@
 #include <cassert>
 #include <cstdint>
 #include <cstdlib>
+#include <llvm/Support/Debug.h>
 #include <utility>
 #include <iostream>
 #include <string>
@@ -88,13 +89,41 @@ AliasResult OptimisticAAResult::alias(const MemoryLocation &LocA,
     return AliasResult::MayAlias;
   }
 
+  auto DumpInfo = [&](bool Cached){
+    dbgs() << "[ORAQL] Optimistic query [Cached " << Cached << "]\n";
+    dbgs() << "[ORAQL] - " << *LocA.Ptr << "["<<LocA.Size<<"]\n";
+    dbgs() << "[ORAQL] - " << *LocB.Ptr << "["<<LocB.Size<<"]\n";
+    Function *Scope = nullptr;
+    auto *PtrAI = dyn_cast<Instruction>(LocA.Ptr);
+    auto *PtrBI = dyn_cast<Instruction>(LocB.Ptr);
+    auto *PtrAArg = dyn_cast<Argument>(LocA.Ptr);
+    auto *PtrBArg = dyn_cast<Argument>(LocB.Ptr);
+    if (PtrAI)
+      Scope = PtrAI->getFunction();
+    else if (PtrBI)
+      Scope = PtrBI->getFunction();
+    else if (PtrAArg)
+      Scope = PtrAArg->getParent();
+    else if (PtrBArg)
+      Scope = PtrBArg->getParent();
+    dbgs() << "[ORAQL] Scope: " << Scope?  Scope->getName() : "<unknown>"<< "\n";
+    if (PtrAI)
+      dbgs() << "[ORAQL] LocA: " << LocA.Ptr->getDebugLoc() << "\n";
+    if (PtrBI)
+      dbgs() << "[ORAQL] LocB: " << LocB.Ptr->getDebugLoc() << "\n";
+    dbgs() <<"\n";
+  };
+
   NumberOfOptimisticAAQueries++;
 
   // Check if we have a cached result for this query.
   std::pair<const llvm::Value* const, const llvm::Value* const> pr(LocA.Ptr, LocB.Ptr);
   if (this->decisionCache.find(pr) != this->decisionCache.end()) {
-    if(this->decisionCache[pr]) return AliasResult::NoAlias;
-    else return AliasResult::MayAlias;
+    if(this->decisionCache[pr]) {
+      DumpInfo(/* Cached */ true);
+      return AliasResult::NoAlias;
+    }
+    return AliasResult::MayAlias;
   }
 
   // We must run, and we have nothing in the cache, so the work begins.
@@ -106,20 +135,20 @@ AliasResult OptimisticAAResult::alias(const MemoryLocation &LocA,
     if(this->optAAEnabled &&
        (currentDecision-1 >= this->decisions.size() || this->decisions[currentDecision-1] == 1)) {
       NumberOfOptimisticDecisions++;
+      LLVM_DEBUG(DumpInfo(/* Cached */ false));
       decisionCache[pr] = true;
       return AliasResult::NoAlias;
     }
-    else {
-      NumberOfPessimisticDecisions++;
-      decisionCache[pr] = false;
-      return AliasResult::MayAlias;
-    }
+    NumberOfPessimisticDecisions++;
+    decisionCache[pr] = false;
+    return AliasResult::MayAlias;
   }
   else {
     // use fourier probing
     for(auto it=this->decisions.begin(); it!=this->decisions.end(); it=it+2) {
       if(int(currentDecision-1)%(*it)==(*it+1)) {
         NumberOfOptimisticDecisions++;
+        LLVM_DEBUG(DumpInfo(/* Cached */ false));
         decisionCache[pr] = true;
         return AliasResult::NoAlias;
       }
@@ -166,7 +195,7 @@ bool OptimisticAAWrapperPass::runOnFunction(Function &F) {
       Result->optAAEnabled = false;
       return false;
     }
-      
+
   if(Result->decisions.empty()) {
     std::stringstream iss( OptAASequence );
     int seqItem;
